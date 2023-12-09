@@ -1,0 +1,35 @@
+name: List Commits from Merged PRs and Create PR to Int
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  list-commits-and-create-pr:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Set up Git
+      run: git config --global user.email "you@example.com" && git config --global user.name "Your Name"
+
+    - name: List Commits from Merged PRs
+      id: list-commits
+      run: |
+        for pr_commit in $(git log --merges --grep='TESTED' --pretty=format:"%H" | sort -u); do
+          echo "Commits for merged PR $pr_commit:"
+          git log --oneline $pr_commit^..$pr_commit
+          echo "----------------------------------------"
+        done
+
+    - name: Create PR to Int
+      run: |
+        # Logic to create a new pull request from Dev to Int
+        # This could involve using GitHub API calls, Git commands, or manual actions in the GUI
+        # For simplicity, let's assume you have a script for creating a PR
+
+        # Replace the following line with your actual script or commands
+        ./create_pr_script.sh ${{ steps.list-commits.outputs.commits }}
