@@ -1,35 +1,54 @@
-name: List Commits from Merged PRs and Create PR to Int
+name: Create Pull Request from Tested PRs
 
 on:
-  push:
-    branches:
-      - main
+  schedule: # Schedule the workflow to run daily
+    - cron: '0 0 * * *'
 
 jobs:
-  list-commits-and-create-pr:
+  create_pull_request:
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v2
+      - uses: actions/checkout@v3
 
-    - name: Set up Git
-      run: git config --global user.email "you@example.com" && git config --global user.name "Your Name"
+      - name: Get tested PR commits
+        run: |
+          gh api graphql -f 'query {
+            search(query: "is:merged is:pr label:TESTED", type: ISSUE, first: 100) {
+              edges {
+                node {
+                  ... on PullRequest {
+                    commits(first: 100) {
+                      nodes {
+                        commit {
+                          oid
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }' | jq '.data.search.edges | map(.node.commits.nodes[].commit.oid)' > tested_commits.txt
 
-    - name: List Commits from Merged PRs
-      id: list-commits
-      run: |
-        for pr_commit in $(git log --merges --grep='TESTED' --pretty=format:"%H" | sort -u); do
-          echo "Commits for merged PR $pr_commit:"
-          git log --oneline $pr_commit^..$pr_commit
-          echo "----------------------------------------"
-        done
+      - name: Cherry-pick tested commits
+        run: |
+          while read -r commit_hash; do
+            git cherry-pick "$commit_hash"
+          done < tested_commits.txt
 
-    - name: Create PR to Int
-      run: |
-        # Logic to create a new pull request from Dev to Int
-        # This could involve using GitHub API calls, Git commands, or manual actions in the GUI
-        # For simplicity, let's assume you have a script for creating a PR
+      - name: Create new branch
+        run: |
+          git checkout -b test_pr_commits
 
-        # Replace the following line with your actual script or commands
-        ./create_pr_script.sh ${{ steps.list-commits.outputs.commits }}
+      - name: Push new branch to int
+        run: |
+          git push origin test_pr_commits
+
+      - name: Create pull request
+        uses: peter-evans/create-pull-request@v5
+        with:
+          title: "Merge tested PR commits"
+          body: "This pull request contains the commits from merged PRs with the label 'TESTED'."
+          base: dev
+          head: test_pr_commits
+          token: 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 # This is a dummy token for illustration and should be replaced with your actual token
