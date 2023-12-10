@@ -1,0 +1,54 @@
+name: Create Pull Request from Tested PRs
+
+on:
+  schedule: # Schedule the workflow to run daily
+    - cron: '0 0 * * *'
+
+jobs:
+  create_pull_request:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Get tested PR commits
+        run: |
+          gh api graphql -f 'query {
+            search(query: "is:merged is:pr label:TESTED", type: ISSUE, first: 100) {
+              edges {
+                node {
+                  ... on PullRequest {
+                    commits(first: 100) {
+                      nodes {
+                        commit {
+                          oid
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }' | jq '.data.search.edges | map(.node.commits.nodes[].commit.oid)' > tested_commits.txt
+
+      - name: Cherry-pick tested commits
+        run: |
+          while read -r commit_hash; do
+            git cherry-pick "$commit_hash"
+          done < tested_commits.txt
+
+      - name: Create new branch
+        run: |
+          git checkout -b test_pr_commits
+
+      - name: Push new branch to int
+        run: |
+          git push origin test_pr_commits
+
+      - name: Create pull request
+        uses: peter-evans/create-pull-request@v5
+        with:
+          title: "Merge tested PR commits"
+          body: "This pull request contains the commits from merged PRs with the label 'TESTED'."
+          base: dev
+          head: test_pr_commits
+          token: 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 # This is a dummy token for illustration and should be replaced with your actual token
