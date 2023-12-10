@@ -1,54 +1,33 @@
-name: Create Pull Request from Tested PRs
+name: List Merged PRs with TESTED Comments
 
 on:
-  schedule: # Schedule the workflow to run daily
-    - cron: '0 0 * * *'
+  workflow_run:
+    workflows: ["Your Workflow Name"]
+    types:
+      - completed
 
 jobs:
-  create_pull_request:
+  list-merged-prs:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v3
+    - name: Checkout Repository
+      uses: actions/checkout@v2
 
-      - name: Get tested PR commits
-        run: |
-          gh api graphql -f 'query {
-            search(query: "is:merged is:pr label:TESTED", type: ISSUE, first: 100) {
-              edges {
-                node {
-                  ... on PullRequest {
-                    commits(first: 100) {
-                      nodes {
-                        commit {
-                          oid
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }' | jq '.data.search.edges | map(.node.commits.nodes[].commit.oid)' > tested_commits.txt
+    - name: List Merged PRs with TESTED Comments
+      run: |
+        # Fetching merged PRs
+        merged_prs=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+          "https://api.github.com/repos/${{ github.repository }}/pulls?state=closed&sort=updated&direction=desc" | jq -r '.[] | select(.merged_at != null) | .number')
 
-      - name: Cherry-pick tested commits
-        run: |
-          while read -r commit_hash; do
-            git cherry-pick "$commit_hash"
-          done < tested_commits.txt
+        # Iterate through merged PRs
+        for pr_number in $merged_prs; do
+          # Fetch comments for each PR
+          comments=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/issues/${pr_number}/comments" | jq -r '.[] | .body')
 
-      - name: Create new branch
-        run: |
-          git checkout -b test_pr_commits
-
-      - name: Push new branch to int
-        run: |
-          git push origin test_pr_commits
-
-      - name: Create pull request
-        uses: peter-evans/create-pull-request@v5
-        with:
-          title: "Merge tested PR commits"
-          body: "This pull request contains the commits from merged PRs with the label 'TESTED'."
-          base: dev
-          head: test_pr_commits
-          token: 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 # This is a dummy token for illustration and should be replaced with your actual token
+          # Check if the word 'TESTED' is in the comments
+          if echo "$comments" | grep -q 'TESTED'; then
+            echo "PR #$pr_number has been merged and contains 'TESTED' in comments."
+          fi
+        done
